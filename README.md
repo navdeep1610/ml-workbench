@@ -1,6 +1,6 @@
 # ML Workbench
 
-ML Workbench is a cloud-first Streamlit application for preparing data and training or comparing supervised machine-learning models without writing code. Users upload a CSV dataset, review common quality problems, choose classification or regression, configure model-specific hyperparameters, and download predictions, comparison results, reports, or fitted pipelines.
+ML Workbench is a cloud-first Streamlit application for preparing data, fitting supervised machine-learning models, and understanding their results without writing code. The interface follows three spacious steps: **Prepare**, **Model**, and **Visualize**.
 
 ## Live application
 
@@ -12,20 +12,34 @@ ML Workbench is a cloud-first Streamlit application for preparing data and train
 - Maximum upload size: 25 MB.
 - Maximum shape: 100,000 rows and 200 columns.
 - Classification and regression are supported.
-- Missing numeric features can use median, mean, or most-frequent imputation.
+- A complete per-feature preparation recipe is shown before training.
+- Numeric-like text columns can be converted explicitly.
+- Missing numeric features support `SimpleImputer`, `KNNImputer`, and experimental `IterativeImputer`.
 - Missing categorical features can use the most-frequent value or a dedicated `Missing` category.
 - Missing-value statistics are learned from training rows only to prevent data leakage.
 - Missing targets are excluded rather than guessed.
 - Blank strings, surrounding spaces, infinite values, and exact duplicate rows can be normalized.
 - Constant and high-cardinality text columns are flagged and can be excluded.
+- Numeric scaling supports automatic selection, no scaling, `StandardScaler`, `RobustScaler`, and `MinMaxScaler`.
 - The test split is configurable from 10% to 40% and defaults to 20%.
 - Classification uses a stratified split.
 - Categorical features are one-hot encoded.
-- Scaling is applied automatically to scale-sensitive algorithms.
-- Hyperparameters are configured manually for one model at a time.
-- Multiple models can be compared on the same train/test split using classification or regression metrics.
+- Users can train one model or compare several models.
+- Hyperparameters can be configured manually for every selected model.
+- `RandomizedSearchCV` and bounded `GridSearchCV` searches are available with 3, 5, or 10 folds.
+- Model selection uses cross-validation while the protected test set is reserved for final evaluation.
+- Classification results include task metrics, a confusion matrix, a per-class report, ROC and precision–recall curves.
+- Regression results include MAE, MSE, RMSE, R², actual-versus-predicted, and residual plots.
+- One transformed feature uses a distribution plot, two use a direct scatter plot, and higher dimensions use PCA or TruncatedSVD.
+- Predictions, leaderboard, JSON report, and the best fitted pipeline can be downloaded.
 
-Automatic cross-validated hyperparameter search, date parsing, outlier guidance, and richer data-type correction are planned extensions.
+Date parsing, time-series-specific workflows, outlier guidance, class-imbalance resampling, and richer feature selection are planned extensions.
+
+## Application workflow
+
+1. **Prepare** — upload data, define the target and task, choose deterministic cleaning, configure imputation and scaling, and review every feature.
+2. **Model** — choose single or comparison mode, then manual hyperparameters or cross-validated automatic search.
+3. **Visualize** — inspect metrics before graphs, review detailed evaluation plots, explore the feature-space projection, and download outputs.
 
 ## Develop entirely in GitHub Codespaces
 

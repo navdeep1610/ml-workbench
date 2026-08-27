@@ -22,16 +22,14 @@ def classification_metrics(actual: Any, predicted: Any) -> dict[str, float]:
     return {
         "Accuracy": float(accuracy_score(actual, predicted)),
         "Balanced accuracy": float(balanced_accuracy_score(actual, predicted)),
-        "Precision (weighted)": float(
-            precision_score(actual, predicted, average="weighted", zero_division=0)
+        "Precision (macro)": float(
+            precision_score(actual, predicted, average="macro", zero_division=0)
         ),
-        "Recall (weighted)": float(
-            recall_score(actual, predicted, average="weighted", zero_division=0)
-        ),
+        "Recall (macro)": float(recall_score(actual, predicted, average="macro", zero_division=0)),
+        "F1 score (macro)": float(f1_score(actual, predicted, average="macro", zero_division=0)),
         "F1 score (weighted)": float(
             f1_score(actual, predicted, average="weighted", zero_division=0)
         ),
-        "F1 score (macro)": float(f1_score(actual, predicted, average="macro", zero_division=0)),
     }
 
 

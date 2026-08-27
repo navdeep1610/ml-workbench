@@ -6,7 +6,8 @@ from sklearn.pipeline import Pipeline
 
 from ml_core.data_quality import inspect_dataframe, normalize_dataframe
 from ml_core.models import MODELS_REQUIRING_SCALING, create_estimator, recommended_parameters
-from ml_core.preprocessing import build_preprocessor
+from ml_core.preprocessing import build_numeric_imputer, build_preprocessor
+from ml_core.tuning import display_cv_score, parameter_space, scoring_options
 from ml_core.validation import DatasetValidationError, validate_dataframe, validate_problem
 
 
@@ -27,7 +28,7 @@ def test_missing_values_are_accepted_and_imputed() -> None:
     validate_dataframe(data)
     model = Pipeline(
         [
-            ("preprocessing", build_preprocessor(data[["feature"]], False)),
+            ("preprocessing", build_preprocessor(data[["feature"]])),
             ("model", create_estimator("Classification", "Decision Tree", {})),
         ]
     )
@@ -63,7 +64,10 @@ def test_mixed_features_fit_in_pipeline() -> None:
     )
     model = Pipeline(
         [
-            ("preprocessing", build_preprocessor(features, "Logistic Regression" in MODELS_REQUIRING_SCALING)),
+            (
+                "preprocessing",
+                build_preprocessor(features, scaler="StandardScaler"),
+            ),
             ("model", estimator),
         ]
     )
@@ -76,3 +80,21 @@ def test_recommended_parameters_limit_neighbors_to_training_rows() -> None:
         "Classification", "K-Nearest Neighbors", random_state=42, training_rows=3
     )
     assert parameters["n_neighbors"] == 3
+
+
+@pytest.mark.parametrize("method", ["SimpleImputer", "KNNImputer", "IterativeImputer"])
+def test_supported_numeric_imputers_fit(method: str) -> None:
+    data = pd.DataFrame({"first": [1.0, None, 3.0], "second": [2.0, 4.0, 6.0]})
+    imputer = build_numeric_imputer(method, random_state=42)
+    transformed = imputer.fit_transform(data)
+    assert transformed.shape == (3, 2)
+    assert not pd.isna(transformed).any()
+
+
+def test_search_configuration_is_available_for_each_task() -> None:
+    assert scoring_options("Classification")["F1 score (macro)"] == "f1_macro"
+    assert scoring_options("Regression")["RMSE"] == "neg_root_mean_squared_error"
+    assert "model__n_estimators" in parameter_space(
+        "Classification", "Random Forest", training_rows=100
+    )
+    assert display_cv_score("RMSE", -2.5) == 2.5

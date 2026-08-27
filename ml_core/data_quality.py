@@ -19,6 +19,7 @@ class DataQualityReport:
     blank_text_cells: int
     constant_columns: tuple[str, ...]
     high_cardinality_columns: tuple[str, ...]
+    numeric_like_columns: tuple[str, ...]
 
 
 def inspect_dataframe(data: pd.DataFrame) -> DataQualityReport:
@@ -37,10 +38,17 @@ def inspect_dataframe(data: pd.DataFrame) -> DataQualityReport:
     )
 
     high_cardinality_columns: list[str] = []
+    numeric_like_columns: list[str] = []
     for column in text_columns:
         unique_count = int(data[column].nunique(dropna=True))
         if unique_count > 50 and unique_count / max(len(data), 1) > 0.2:
             high_cardinality_columns.append(str(column))
+        non_missing = data[column].dropna().astype("string").str.strip()
+        non_blank = non_missing[non_missing.ne("")]
+        if len(non_blank):
+            numeric_ratio = float(pd.to_numeric(non_blank, errors="coerce").notna().mean())
+            if numeric_ratio >= 0.9:
+                numeric_like_columns.append(str(column))
 
     return DataQualityReport(
         missing_cells=int(data.isna().sum().sum()),
@@ -50,6 +58,7 @@ def inspect_dataframe(data: pd.DataFrame) -> DataQualityReport:
         blank_text_cells=blank_text_cells,
         constant_columns=constant_columns,
         high_cardinality_columns=tuple(high_cardinality_columns),
+        numeric_like_columns=tuple(numeric_like_columns),
     )
 
 
@@ -60,6 +69,7 @@ def normalize_dataframe(
     blank_as_missing: bool = True,
     infinity_as_missing: bool = True,
     drop_duplicates: bool = False,
+    numeric_columns: tuple[str, ...] | list[str] = (),
 ) -> pd.DataFrame:
     """Apply reversible-in-spirit cleanup choices to a copy of a dataframe."""
     cleaned = data.copy()
@@ -77,8 +87,11 @@ def normalize_dataframe(
     if infinity_as_missing:
         cleaned.replace([np.inf, -np.inf], np.nan, inplace=True)
 
+    for column in numeric_columns:
+        if column in cleaned.columns:
+            cleaned[column] = pd.to_numeric(cleaned[column], errors="coerce")
+
     if drop_duplicates:
         cleaned = cleaned.drop_duplicates().reset_index(drop=True)
 
     return cleaned
-
