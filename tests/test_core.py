@@ -48,6 +48,21 @@ def test_data_quality_normalization() -> None:
     assert cleaned.isna().sum().sum() == 2
 
 
+def test_numeric_like_text_is_detected_and_converted() -> None:
+    data = pd.DataFrame({"amount": ["1.5", "2", "bad", "4"], "label": [0, 1, 0, 1]})
+    report = inspect_dataframe(data)
+    assert "amount" not in report.numeric_like_columns
+
+    mostly_numeric = pd.DataFrame(
+        {"amount": [str(value) for value in range(10)] + ["bad"], "label": [0, 1] * 5 + [0]}
+    )
+    report = inspect_dataframe(mostly_numeric)
+    assert "amount" in report.numeric_like_columns
+    cleaned = normalize_dataframe(mostly_numeric, numeric_columns=["amount"])
+    assert pd.api.types.is_numeric_dtype(cleaned["amount"])
+    assert cleaned["amount"].isna().sum() == 1
+
+
 def test_regression_requires_numeric_target() -> None:
     data = pd.DataFrame({"feature": [1, 2, 3], "target": ["low", "medium", "high"]})
     with pytest.raises(DatasetValidationError, match="numeric target"):
@@ -100,3 +115,29 @@ def test_search_configuration_is_available_for_each_task() -> None:
         "Classification", "Random Forest", training_rows=100
     )
     assert display_cv_score("RMSE", -2.5) == 2.5
+
+
+@pytest.mark.parametrize(
+    ("task", "model_name"),
+    [
+        ("Classification", "Logistic Regression"),
+        ("Classification", "Decision Tree"),
+        ("Classification", "Random Forest"),
+        ("Classification", "K-Nearest Neighbors"),
+        ("Classification", "Support Vector Machine"),
+        ("Classification", "Gradient Boosting"),
+        ("Regression", "Linear Regression"),
+        ("Regression", "Ridge Regression"),
+        ("Regression", "Lasso Regression"),
+        ("Regression", "Decision Tree Regressor"),
+        ("Regression", "Random Forest Regressor"),
+        ("Regression", "K-Nearest Neighbors Regressor"),
+        ("Regression", "Support Vector Regressor"),
+        ("Regression", "Gradient Boosting Regressor"),
+    ],
+)
+def test_search_spaces_match_model_parameters(task: str, model_name: str) -> None:
+    estimator = create_estimator(task, model_name, recommended_parameters(task, model_name, 42, 50))
+    pipeline = Pipeline([("model", estimator)])
+    first_candidate = {key: values[0] for key, values in parameter_space(task, model_name, 50).items()}
+    pipeline.set_params(**first_candidate)
