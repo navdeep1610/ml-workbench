@@ -10,7 +10,13 @@ from ml_core.validation import DatasetValidationError, validate_dataframe, valid
 
 
 def test_clean_dataframe_is_accepted() -> None:
-    data = pd.DataFrame({"age": [20, 30, 40], "city": ["A", "B", "A"], "target": [0, 1, 0]})
+    data = pd.DataFrame(
+        {
+            "age": [20, 30, 40, 50],
+            "city": ["A", "B", "A", "B"],
+            "target": [0, 1, 0, 1],
+        }
+    )
     validate_dataframe(data)
     validate_problem(data, "target", "Classification")
 
@@ -43,4 +49,3 @@ def test_mixed_features_fit_in_pipeline() -> None:
     )
     model.fit(features, target)
     assert model.predict(features).shape == (4,)
-
