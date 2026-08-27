@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import io
+import importlib
 import json
 import time
 from typing import Any
@@ -17,17 +18,37 @@ from sklearn.metrics import auc, confusion_matrix, roc_curve
 from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 
-from ml_core.evaluation import classification_metrics, regression_metrics
-from ml_core.data_quality import inspect_dataframe, normalize_dataframe
-from ml_core.models import (
-    CLASSIFICATION_MODELS,
-    MODELS_REQUIRING_SCALING,
-    REGRESSION_MODELS,
-    create_estimator,
-    recommended_parameters,
-)
-from ml_core.preprocessing import build_preprocessor
-from ml_core.validation import DatasetValidationError, validate_dataframe, validate_problem
+from ml_core import data_quality as data_quality_module
+from ml_core import evaluation as evaluation_module
+from ml_core import models as models_module
+from ml_core import preprocessing as preprocessing_module
+from ml_core import validation as validation_module
+
+
+# Streamlit can rerun app.py in the same process after a cloud update. Reloading local
+# modules ensures a deployment never mixes a new interface with cached old helpers.
+for local_module in (
+    data_quality_module,
+    evaluation_module,
+    models_module,
+    preprocessing_module,
+    validation_module,
+):
+    importlib.reload(local_module)
+
+inspect_dataframe = data_quality_module.inspect_dataframe
+normalize_dataframe = data_quality_module.normalize_dataframe
+classification_metrics = evaluation_module.classification_metrics
+regression_metrics = evaluation_module.regression_metrics
+CLASSIFICATION_MODELS = models_module.CLASSIFICATION_MODELS
+MODELS_REQUIRING_SCALING = models_module.MODELS_REQUIRING_SCALING
+REGRESSION_MODELS = models_module.REGRESSION_MODELS
+create_estimator = models_module.create_estimator
+recommended_parameters = models_module.recommended_parameters
+build_preprocessor = preprocessing_module.build_preprocessor
+DatasetValidationError = validation_module.DatasetValidationError
+validate_dataframe = validation_module.validate_dataframe
+validate_problem = validation_module.validate_problem
 
 
 st.set_page_config(page_title="ML Workbench", page_icon="🧠", layout="wide")
