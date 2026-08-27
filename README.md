@@ -1,25 +1,31 @@
 # ML Workbench
 
-ML Workbench is a cloud-first Streamlit application for training and evaluating supervised machine-learning models without writing code. Users upload a clean CSV dataset, choose classification or regression, select a target and model, configure model-specific hyperparameters, and download predictions, a model report, or the fitted pipeline.
+ML Workbench is a cloud-first Streamlit application for preparing data and training or comparing supervised machine-learning models without writing code. Users upload a CSV dataset, review common quality problems, choose classification or regression, configure model-specific hyperparameters, and download predictions, comparison results, reports, or fitted pipelines.
 
 ## Live application
 
 [Open ML Workbench](https://navdeep-ml-workbench.streamlit.app/)
 
-## Current MVP rules
+## Current capabilities
 
 - CSV files only.
-- Data must not contain missing values.
 - Maximum upload size: 25 MB.
 - Maximum shape: 100,000 rows and 200 columns.
 - Classification and regression are supported.
+- Missing numeric features can use median, mean, or most-frequent imputation.
+- Missing categorical features can use the most-frequent value or a dedicated `Missing` category.
+- Missing-value statistics are learned from training rows only to prevent data leakage.
+- Missing targets are excluded rather than guessed.
+- Blank strings, surrounding spaces, infinite values, and exact duplicate rows can be normalized.
+- Constant and high-cardinality text columns are flagged and can be excluded.
 - The test split is configurable from 10% to 40% and defaults to 20%.
 - Classification uses a stratified split.
 - Categorical features are one-hot encoded.
 - Scaling is applied automatically to scale-sensitive algorithms.
 - Hyperparameters are configured manually for one model at a time.
+- Multiple models can be compared on the same train/test split using classification or regression metrics.
 
-Automatic cross-validated hyperparameter search and missing-value handling are planned extensions.
+Automatic cross-validated hyperparameter search, date parsing, outlier guidance, and richer data-type correction are planned extensions.
 
 ## Develop entirely in GitHub Codespaces
 

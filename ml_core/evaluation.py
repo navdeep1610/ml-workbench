@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 from sklearn.metrics import (
     accuracy_score,
+    balanced_accuracy_score,
     f1_score,
     mean_absolute_error,
     mean_squared_error,
@@ -17,9 +18,10 @@ from sklearn.metrics import (
 
 
 def classification_metrics(actual: Any, predicted: Any) -> dict[str, float]:
-    """Return task-level classification metrics using weighted averaging."""
+    """Return complementary classification metrics for balanced and imbalanced data."""
     return {
         "Accuracy": float(accuracy_score(actual, predicted)),
+        "Balanced accuracy": float(balanced_accuracy_score(actual, predicted)),
         "Precision (weighted)": float(
             precision_score(actual, predicted, average="weighted", zero_division=0)
         ),
@@ -29,6 +31,7 @@ def classification_metrics(actual: Any, predicted: Any) -> dict[str, float]:
         "F1 score (weighted)": float(
             f1_score(actual, predicted, average="weighted", zero_division=0)
         ),
+        "F1 score (macro)": float(f1_score(actual, predicted, average="macro", zero_division=0)),
     }
 
 
@@ -41,4 +44,3 @@ def regression_metrics(actual: Any, predicted: Any) -> dict[str, float]:
         "RMSE": float(np.sqrt(mse)),
         "R²": float(r2_score(actual, predicted)),
     }
-

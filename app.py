@@ -18,11 +18,13 @@ from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
 
 from ml_core.evaluation import classification_metrics, regression_metrics
+from ml_core.data_quality import inspect_dataframe, normalize_dataframe
 from ml_core.models import (
     CLASSIFICATION_MODELS,
     MODELS_REQUIRING_SCALING,
     REGRESSION_MODELS,
     create_estimator,
+    recommended_parameters,
 )
 from ml_core.preprocessing import build_preprocessor
 from ml_core.validation import DatasetValidationError, validate_dataframe, validate_problem
@@ -216,10 +218,152 @@ def regression_parameters(model_name: str, random_state: int) -> dict[str, Any]:
 
 
 def metric_cards(metrics: dict[str, float], elapsed: float) -> None:
-    columns = st.columns(min(len(metrics) + 1, 5))
-    for column, (name, value) in zip(columns, metrics.items()):
-        column.metric(name, f"{value:.4f}")
-    columns[-1].metric("Training time", f"{elapsed:.2f} s")
+    values = [*metrics.items(), ("Training time", elapsed)]
+    for start in range(0, len(values), 4):
+        row = values[start : start + 4]
+        columns = st.columns(len(row))
+        for column, (name, value) in zip(columns, row):
+            suffix = " s" if name == "Training time" else ""
+            column.metric(name, f"{value:.4f}{suffix}")
+
+
+def build_model_pipeline(
+    features: pd.DataFrame,
+    task: str,
+    model_name: str,
+    parameters: dict[str, Any],
+    numeric_missing_strategy: str,
+    categorical_missing_strategy: str,
+) -> Pipeline:
+    """Create one end-to-end model with leakage-safe preprocessing."""
+    estimator = create_estimator(task, model_name, parameters)
+    preprocessor = build_preprocessor(
+        features,
+        model_name in MODELS_REQUIRING_SCALING,
+        numeric_missing_strategy,
+        categorical_missing_strategy,
+    )
+    return Pipeline([("preprocessing", preprocessor), ("model", estimator)])
+
+
+def render_model_comparison(
+    features: pd.DataFrame,
+    target_values: pd.Series,
+    task: str,
+    model_names: list[str],
+    test_percentage: int,
+    random_state: int,
+    numeric_missing_strategy: str,
+    categorical_missing_strategy: str,
+    primary_metric: str,
+) -> None:
+    """Train selected models on one split and display a fair leaderboard."""
+    try:
+        x_train, x_test, y_train, y_test = train_test_split(
+            features,
+            target_values,
+            test_size=test_percentage / 100,
+            random_state=random_state,
+            stratify=target_values if task == "Classification" else None,
+        )
+    except ValueError as error:
+        st.error(f"The data could not be split safely: {error}")
+        return
+
+    result_rows: list[dict[str, Any]] = []
+    trained_models: dict[str, Pipeline] = {}
+    failures: list[str] = []
+    progress = st.progress(0, text="Preparing model comparison...")
+
+    for index, model_name in enumerate(model_names):
+        progress.progress(index / len(model_names), text=f"Training {model_name}...")
+        try:
+            parameters = recommended_parameters(
+                task, model_name, random_state, training_rows=len(x_train)
+            )
+            model = build_model_pipeline(
+                features,
+                task,
+                model_name,
+                parameters,
+                numeric_missing_strategy,
+                categorical_missing_strategy,
+            )
+            start_time = time.perf_counter()
+            model.fit(x_train, y_train)
+            predicted = model.predict(x_test)
+            elapsed = time.perf_counter() - start_time
+            metrics = (
+                classification_metrics(y_test, predicted)
+                if task == "Classification"
+                else regression_metrics(y_test, predicted)
+            )
+            result_rows.append({"Model": model_name, **metrics, "Training time (s)": elapsed})
+            trained_models[model_name] = model
+        except (ValueError, TypeError, MemoryError) as error:
+            failures.append(f"{model_name}: {error}")
+
+    progress.progress(1.0, text="Comparison complete")
+    if not result_rows:
+        st.error("None of the selected models could be trained.")
+        for failure in failures:
+            st.caption(failure)
+        return
+
+    results = pd.DataFrame(result_rows)
+    lower_is_better = primary_metric in {"MAE", "MSE", "RMSE", "Training time (s)"}
+    results = results.sort_values(primary_metric, ascending=lower_is_better).reset_index(drop=True)
+    results.insert(0, "Rank", np.arange(1, len(results) + 1))
+
+    st.subheader("5. Model comparison")
+    best_model_name = str(results.iloc[0]["Model"])
+    st.success(f"Best by {primary_metric}: {best_model_name}")
+    st.dataframe(
+        results.style.format(
+            {column: "{:.4f}" for column in results.select_dtypes(include="number").columns if column != "Rank"}
+        ),
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    chart = px.bar(
+        results,
+        x="Model",
+        y=primary_metric,
+        color="Model",
+        title=f"Model comparison by {primary_metric}",
+        text_auto=".4f",
+    )
+    chart.update_layout(showlegend=False)
+    st.plotly_chart(chart, use_container_width=True)
+    st.caption(
+        "Every model used the same train/test rows. Comparison uses recommended baseline "
+        "hyperparameters; tune the winner in Single model mode before making a final decision."
+    )
+
+    if failures:
+        with st.expander(f"{len(failures)} model(s) could not be compared"):
+            for failure in failures:
+                st.write(f"- {failure}")
+
+    comparison_csv = results.to_csv(index=False).encode("utf-8")
+    best_model_buffer = io.BytesIO()
+    joblib.dump(trained_models[best_model_name], best_model_buffer)
+    download_left, download_right = st.columns(2)
+    download_left.download_button(
+        "Download comparison table",
+        comparison_csv,
+        file_name="model_comparison.csv",
+        mime="text/csv",
+        use_container_width=True,
+    )
+    download_right.download_button(
+        f"Download best model ({best_model_name})",
+        best_model_buffer.getvalue(),
+        file_name="best_model.joblib",
+        mime="application/octet-stream",
+        use_container_width=True,
+    )
 
 
 def classification_charts(actual: pd.Series, predicted: np.ndarray, model: Pipeline) -> None:
@@ -283,45 +427,170 @@ def regression_charts(actual: pd.Series, predicted: np.ndarray) -> None:
 def main() -> None:
     st.title("🧠 ML Workbench")
     st.write(
-        "Upload a clean CSV, configure a classification or regression model, "
-        "and evaluate it without writing code."
+        "Upload a CSV, review data-quality problems, and train or compare classification "
+        "and regression models without writing code."
     )
     st.info(
-        "MVP rule: datasets containing missing values are rejected. "
-        "The cloud limit is 25 MB, 100,000 rows, and 200 columns."
+        "Missing feature values can now be handled automatically. Rows with a missing target "
+        "are excluded because the correct answer cannot be safely guessed. The cloud limit is "
+        "25 MB, 100,000 rows, and 200 columns."
     )
 
-    uploaded_file = st.file_uploader("Upload a clean CSV dataset", type=["csv"])
+    uploaded_file = st.file_uploader("Upload a CSV dataset", type=["csv"])
     if uploaded_file is None:
         st.stop()
 
     try:
-        data = pd.read_csv(uploaded_file)
-        validate_dataframe(data)
+        raw_data = pd.read_csv(uploaded_file)
+        validate_dataframe(raw_data)
     except (DatasetValidationError, pd.errors.ParserError, UnicodeDecodeError, ValueError) as error:
         st.error(str(error))
         st.stop()
 
-    st.subheader("1. Review the dataset")
-    summary_columns = st.columns(4)
-    summary_columns[0].metric("Rows", f"{len(data):,}")
-    summary_columns[1].metric("Columns", len(data.columns))
-    summary_columns[2].metric("Numeric columns", len(data.select_dtypes(include="number").columns))
-    summary_columns[3].metric("Duplicate rows", int(data.duplicated().sum()))
+    st.subheader("1. Inspect and clean the dataset")
+    raw_report = inspect_dataframe(raw_data)
+    summary_columns = st.columns(5)
+    summary_columns[0].metric("Rows", f"{len(raw_data):,}")
+    summary_columns[1].metric("Missing cells", f"{raw_report.missing_cells:,}")
+    summary_columns[2].metric("Blank text cells", f"{raw_report.blank_text_cells:,}")
+    summary_columns[3].metric("Infinite values", f"{raw_report.infinite_values:,}")
+    summary_columns[4].metric("Duplicate rows", f"{raw_report.duplicate_rows:,}")
+
+    with st.expander("Data-cleaning options", expanded=any([
+        raw_report.missing_cells,
+        raw_report.blank_text_cells,
+        raw_report.infinite_values,
+        raw_report.duplicate_rows,
+    ])):
+        st.caption("The original uploaded file is never changed. These choices affect this run only.")
+        cleaning_left, cleaning_right = st.columns(2)
+        with cleaning_left:
+            trim_text = st.checkbox(
+                "Remove spaces before and after text", value=True,
+                help="For example, 'Delhi ' and 'Delhi' become the same category.",
+            )
+            blank_as_missing = st.checkbox(
+                "Treat blank text as missing", value=True,
+                help="Blank strings will use the missing-value strategy selected below.",
+            )
+        with cleaning_right:
+            infinity_as_missing = st.checkbox(
+                "Treat +∞ and -∞ as missing", value=True,
+                help="Most machine-learning algorithms cannot train with infinite numeric values.",
+            )
+            drop_duplicates = st.checkbox(
+                "Remove duplicate rows", value=raw_report.duplicate_rows > 0,
+                help="Only completely identical rows are removed.",
+            )
+
+    data = normalize_dataframe(
+        raw_data,
+        trim_text=trim_text,
+        blank_as_missing=blank_as_missing,
+        infinity_as_missing=infinity_as_missing,
+        drop_duplicates=drop_duplicates,
+    )
+    cleaned_report = inspect_dataframe(data)
+    removed_rows = len(raw_data) - len(data)
+    if removed_rows:
+        st.success(f"Removed {removed_rows:,} duplicate row(s) for this run.")
+
+    if cleaned_report.constant_columns:
+        st.warning(
+            "Constant columns do not help prediction and should normally be excluded: "
+            + ", ".join(cleaned_report.constant_columns)
+        )
+    if cleaned_report.high_cardinality_columns:
+        st.warning(
+            "These text columns contain many different values and may be IDs or free text: "
+            + ", ".join(cleaned_report.high_cardinality_columns)
+            + ". Consider excluding them to avoid a very large model."
+        )
+
     st.dataframe(data.head(100), use_container_width=True)
 
     st.subheader("2. Define the problem")
     target = st.selectbox("Target column", data.columns.tolist())
     task = st.radio("Problem type", ["Classification", "Regression"], horizontal=True)
 
+    missing_target_rows = int(data[target].isna().sum())
+    if missing_target_rows:
+        st.warning(
+            f"{missing_target_rows:,} row(s) have no target value and will be excluded from training. "
+            "Feature values can be imputed, but target values should not be guessed."
+        )
+    model_data = data.dropna(subset=[target]).copy()
+
     try:
-        validate_problem(data, target, task)
+        validate_problem(model_data, target, task)
     except DatasetValidationError as error:
         st.warning(str(error))
         st.stop()
 
     model_options = CLASSIFICATION_MODELS if task == "Classification" else REGRESSION_MODELS
-    model_name = st.selectbox("Model", model_options)
+
+    suggested_exclusions = [
+        column
+        for column in [*cleaned_report.constant_columns, *cleaned_report.high_cardinality_columns]
+        if column != target
+    ]
+    excluded_columns = st.multiselect(
+        "Columns to exclude from training",
+        [column for column in model_data.columns if column != target],
+        default=suggested_exclusions,
+        help="Exclude IDs, names, free text, leakage columns, or fields that will not exist when predicting.",
+    )
+    features = model_data.drop(columns=[target, *excluded_columns])
+    target_values = model_data[target]
+    if features.shape[1] == 0:
+        st.error("Keep at least one feature column for training.")
+        st.stop()
+
+    feature_missing_count = int(features.isna().sum().sum())
+    numeric_missing_strategy = "median"
+    categorical_missing_strategy = "most_frequent"
+    with st.expander(
+        "Missing-value strategy",
+        expanded=feature_missing_count > 0,
+    ):
+        if feature_missing_count:
+            st.write(f"The selected feature columns contain **{feature_missing_count:,} missing cells**.")
+        else:
+            st.success("The selected feature columns do not contain missing values.")
+        missing_left, missing_right = st.columns(2)
+        with missing_left:
+            numeric_strategy_label = st.selectbox(
+                "Numeric columns",
+                ["Median (recommended)", "Mean", "Most frequent"],
+                help="Median is usually safest because it is less affected by extreme values.",
+            )
+            numeric_missing_strategy = {
+                "Median (recommended)": "median",
+                "Mean": "mean",
+                "Most frequent": "most_frequent",
+            }[numeric_strategy_label]
+        with missing_right:
+            categorical_strategy_label = st.selectbox(
+                "Text/category columns",
+                ["Most frequent", "Create a 'Missing' category"],
+            )
+            categorical_missing_strategy = (
+                "constant"
+                if categorical_strategy_label == "Create a 'Missing' category"
+                else "most_frequent"
+            )
+        st.caption(
+            "The imputer learns values from training rows only, then applies them to test rows. "
+            "This prevents data leakage."
+        )
+
+    st.subheader("3. Choose how to train")
+    workflow = st.radio(
+        "Training mode",
+        ["Single model", "Compare models"],
+        horizontal=True,
+        help="Compare mode uses the same split and preprocessing rules for every selected model.",
+    )
 
     settings_left, settings_right = st.columns(2)
     with settings_left:
@@ -329,7 +598,61 @@ def main() -> None:
     with settings_right:
         random_state = int(st.number_input("Random seed", 0, 1_000_000, 42))
 
-    st.subheader("3. Configure hyperparameters")
+    if workflow == "Compare models":
+        default_models = (
+            ["Logistic Regression", "Decision Tree", "Random Forest"]
+            if task == "Classification"
+            else ["Linear Regression", "Decision Tree Regressor", "Random Forest Regressor"]
+        )
+        selected_models = st.multiselect(
+            "Models to compare",
+            model_options,
+            default=default_models,
+            help="Start with three models. SVM and gradient boosting can take longer on large datasets.",
+        )
+        metric_options = (
+            [
+                "F1 score (weighted)",
+                "Balanced accuracy",
+                "Accuracy",
+                "F1 score (macro)",
+                "Precision (weighted)",
+                "Recall (weighted)",
+            ]
+            if task == "Classification"
+            else ["RMSE", "MAE", "R²", "MSE"]
+        )
+        primary_metric = st.selectbox(
+            "Metric used to rank models",
+            metric_options,
+            help=(
+                "F1 balances precision and recall. Balanced accuracy or macro F1 is often better "
+                "when one class is much more common than another."
+                if task == "Classification"
+                else "RMSE penalizes large mistakes more strongly; MAE is easier to interpret; higher R² is better."
+            ),
+        )
+        if not selected_models:
+            st.warning("Select at least one model to compare.")
+            st.stop()
+        if not st.button("Compare selected models", type="primary", use_container_width=True):
+            st.stop()
+        render_model_comparison(
+            features,
+            target_values,
+            task,
+            selected_models,
+            test_percentage,
+            random_state,
+            numeric_missing_strategy,
+            categorical_missing_strategy,
+            primary_metric,
+        )
+        st.stop()
+
+    model_name = st.selectbox("Model", model_options)
+
+    st.subheader("4. Configure hyperparameters")
     st.caption(
         "These settings are specific to the selected model. Numeric scaling is applied automatically "
         "when the algorithm is sensitive to feature scale."
@@ -344,11 +667,14 @@ def main() -> None:
     if not st.button("Train and evaluate model", type="primary", use_container_width=True):
         st.stop()
 
-    features = data.drop(columns=[target])
-    target_values = data[target]
-    estimator = create_estimator(task, model_name, parameters)
-    preprocessor = build_preprocessor(features, model_name in MODELS_REQUIRING_SCALING)
-    model = Pipeline([("preprocessing", preprocessor), ("model", estimator)])
+    model = build_model_pipeline(
+        features,
+        task,
+        model_name,
+        parameters,
+        numeric_missing_strategy,
+        categorical_missing_strategy,
+    )
 
     try:
         x_train, x_test, y_train, y_test = train_test_split(
@@ -368,7 +694,7 @@ def main() -> None:
         st.error(f"Training could not be completed: {error}")
         st.stop()
 
-    st.subheader("4. Model results")
+    st.subheader("5. Model results")
     if task == "Classification":
         metrics = classification_metrics(y_test, predicted)
         metric_cards(metrics, elapsed)
@@ -391,6 +717,9 @@ def main() -> None:
         "target": target,
         "test_percentage": test_percentage,
         "random_state": random_state,
+        "excluded_columns": excluded_columns,
+        "numeric_missing_strategy": numeric_missing_strategy,
+        "categorical_missing_strategy": categorical_missing_strategy,
         "hyperparameters": parameters,
         "metrics": metrics,
         "training_seconds": elapsed,
@@ -422,4 +751,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

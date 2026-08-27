@@ -77,3 +77,38 @@ def create_estimator(task: str, model_name: str, parameters: dict[str, Any]) -> 
     except KeyError as error:
         raise ValueError(f"Unsupported model: {model_name}") from error
 
+
+def recommended_parameters(
+    task: str, model_name: str, random_state: int, training_rows: int | None = None
+) -> dict[str, Any]:
+    """Return practical defaults for fair, quick model comparison."""
+    neighbors = min(5, max(1, training_rows or 5))
+    if task == "Classification":
+        defaults: dict[str, dict[str, Any]] = {
+            "Logistic Regression": {"max_iter": 1_000, "random_state": random_state},
+            "Decision Tree": {"random_state": random_state},
+            "Random Forest": {"n_estimators": 200, "random_state": random_state, "n_jobs": -1},
+            "K-Nearest Neighbors": {"n_neighbors": neighbors, "n_jobs": -1},
+            "Support Vector Machine": {"random_state": random_state},
+            "Gradient Boosting": {"random_state": random_state},
+        }
+    else:
+        defaults = {
+            "Linear Regression": {"n_jobs": -1},
+            "Ridge Regression": {"random_state": random_state},
+            "Lasso Regression": {"random_state": random_state, "max_iter": 1_000},
+            "Decision Tree Regressor": {"random_state": random_state},
+            "Random Forest Regressor": {
+                "n_estimators": 200,
+                "random_state": random_state,
+                "n_jobs": -1,
+            },
+            "K-Nearest Neighbors Regressor": {"n_neighbors": neighbors, "n_jobs": -1},
+            "Support Vector Regressor": {},
+            "Gradient Boosting Regressor": {"random_state": random_state},
+        }
+
+    try:
+        return defaults[model_name]
+    except KeyError as error:
+        raise ValueError(f"Unsupported model: {model_name}") from error
