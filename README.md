@@ -2,6 +2,10 @@
 
 ML Workbench is a cloud-first Streamlit application for training and evaluating supervised machine-learning models without writing code. Users upload a clean CSV dataset, choose classification or regression, select a target and model, configure model-specific hyperparameters, and download predictions, a model report, or the fitted pipeline.
 
+## Live application
+
+[Open ML Workbench](https://navdeep-ml-workbench.streamlit.app/)
+
 ## Current MVP rules
 
 - CSV files only.
