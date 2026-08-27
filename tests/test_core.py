@@ -84,7 +84,9 @@ def test_recommended_parameters_limit_neighbors_to_training_rows() -> None:
 
 @pytest.mark.parametrize("method", ["SimpleImputer", "KNNImputer", "IterativeImputer"])
 def test_supported_numeric_imputers_fit(method: str) -> None:
-    data = pd.DataFrame({"first": [1.0, None, 3.0], "second": [2.0, 4.0, 6.0]})
+    data = pd.DataFrame(
+        {"first": [1.0, None, 3.0], "second": [2.0, 4.0, 6.0]}
+    ).copy()
     imputer = build_numeric_imputer(method, random_state=42)
     transformed = imputer.fit_transform(data)
     assert transformed.shape == (3, 2)

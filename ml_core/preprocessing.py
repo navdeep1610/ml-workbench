@@ -53,7 +53,7 @@ def build_numeric_imputer(
             max_iter=iterative_max_iter,
             random_state=random_state,
             add_indicator=add_indicator,
-            keep_empty_features=True,
+            keep_empty_features=False,
             skip_complete=True,
         )
     raise ValueError(f"Unsupported numeric imputer: {method}")
